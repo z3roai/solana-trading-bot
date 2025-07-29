@@ -12,10 +12,10 @@ import axios, { AxiosError } from 'axios';
 import bs58 from 'bs58';
 import { Currency, CurrencyAmount } from '@raydium-io/raydium-sdk';
 
-export class WarpTransactionExecutor implements TransactionExecutor {
-  private readonly warpFeeWallet = new PublicKey('WARPzUMPnycu9eeCZ95rcAUxorqpBqHndfV3ZP5FSyS');
+export class ThirdPartyTransactionExecutor implements TransactionExecutor {
+  private readonly thirdPartyFeeWallet = new PublicKey('WARPzUMPnycu9eeCZ95rcAUxorqpBqHndfV3ZP5FSyS');
 
-  constructor(private readonly warpFee: string) {}
+  constructor(private readonly thirdPartyFee: string) {}
 
   public async executeAndConfirm(
     transaction: VersionedTransaction,
@@ -25,26 +25,26 @@ export class WarpTransactionExecutor implements TransactionExecutor {
     logger.debug('Executing transaction...');
 
     try {
-      const fee = new CurrencyAmount(Currency.SOL, this.warpFee, false).raw.toNumber();
-      const warpFeeMessage = new TransactionMessage({
+      const fee = new CurrencyAmount(Currency.SOL, this.thirdPartyFee, false).raw.toNumber();
+      const thirdPartyFeeMessage = new TransactionMessage({
         payerKey: payer.publicKey,
         recentBlockhash: latestBlockhash.blockhash,
         instructions: [
           SystemProgram.transfer({
             fromPubkey: payer.publicKey,
-            toPubkey: this.warpFeeWallet,
+            toPubkey: this.thirdPartyFeeWallet,
             lamports: fee,
           }),
         ],
       }).compileToV0Message();
 
-      const warpFeeTx = new VersionedTransaction(warpFeeMessage);
-      warpFeeTx.sign([payer]);
+      const thirdPartyFeeTx = new VersionedTransaction(thirdPartyFeeMessage);
+      thirdPartyFeeTx.sign([payer]);
 
       const response = await axios.post<{ confirmed: boolean; signature: string; error?: string }>(
         'https://tx.warp.id/transaction/execute',
         {
-          transactions: [bs58.encode(warpFeeTx.serialize()), bs58.encode(transaction.serialize())],
+          transactions: [bs58.encode(thirdPartyFeeTx.serialize()), bs58.encode(transaction.serialize())],
           latestBlockhash,
         },
         {
@@ -55,10 +55,10 @@ export class WarpTransactionExecutor implements TransactionExecutor {
       return response.data;
     } catch (error) {
       if (error instanceof AxiosError) {
-        logger.trace({ error: error.response?.data }, 'Failed to execute warp transaction');
+        logger.trace({ error: error.response?.data }, 'Failed to execute third-party transaction');
       }
     }
 
     return { confirmed: false };
   }
-}
+} 

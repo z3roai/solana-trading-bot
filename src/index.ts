@@ -1,10 +1,10 @@
-import { MarketCache, PoolCache } from './cache';
-import { Listeners } from './listeners';
+import { MarketCache, PoolCache } from './core/cache';
+import { Listeners } from './core/listeners';
 import { Connection, KeyedAccountInfo, Keypair } from '@solana/web3.js';
 import { LIQUIDITY_STATE_LAYOUT_V4, MARKET_STATE_LAYOUT_V3, Token, TokenAmount } from '@raydium-io/raydium-sdk';
 import { AccountLayout, getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { Bot, BotConfig } from './bot';
-import { DefaultTransactionExecutor, TransactionExecutor } from './transactions';
+import { Bot, BotConfig } from './core/bot';
+import { DefaultTransactionExecutor, TransactionExecutor } from './services/transactions';
 import {
   getToken,
   getWallet,
@@ -45,10 +45,10 @@ import {
   FILTER_CHECK_INTERVAL,
   FILTER_CHECK_DURATION,
   CONSECUTIVE_FILTER_MATCHES,
-} from './helpers';
-import { version } from './package.json';
-import { WarpTransactionExecutor } from './transactions/warp-transaction-executor';
-import { JitoTransactionExecutor } from './transactions/jito-rpc-transaction-executor';
+} from './utils/helpers';
+import { version } from '../package.json';
+import { ThirdPartyTransactionExecutor } from './services/transactions/third-party-transaction-executor';
+import { JitoTransactionExecutor } from './services/transactions/jito-rpc-transaction-executor';
 
 const connection = new Connection(RPC_ENDPOINT, {
   wsEndpoint: RPC_WEBSOCKET_ENDPOINT,
@@ -57,84 +57,74 @@ const connection = new Connection(RPC_ENDPOINT, {
 
 function printDetails(wallet: Keypair, quoteToken: Token, bot: Bot) {
   logger.info(`  
-                                        ..   :-===++++-     
-                                .-==+++++++- =+++++++++-    
-            ..:::--===+=.=:     .+++++++++++:=+++++++++:    
-    .==+++++++++++++++=:+++:    .+++++++++++.=++++++++-.    
-    .-+++++++++++++++=:=++++-   .+++++++++=:.=+++++-::-.    
-     -:+++++++++++++=:+++++++-  .++++++++-:- =+++++=-:      
-      -:++++++=++++=:++++=++++= .++++++++++- =+++++:        
-       -:++++-:=++=:++++=:-+++++:+++++====--:::::::.        
-        ::=+-:::==:=+++=::-:--::::::::::---------::.        
-         ::-:  .::::::::.  --------:::..                    
-          :-    .:.-:::.                                    
-
-          WARP DRIVE ACTIVATED 🚀🐟
-          Made with ❤️ by humans.
-          Version: ${version}                                          
+                    ███████╗ ██████╗ ██╗      █████╗ ███╗   ██╗ █████╗ 
+                    ██╔════╝██╔═══██╗██║     ██╔══██╗████╗  ██║██╔══██╗
+                    ███████╗██║   ██║██║     ███████║██╔██╗ ██║███████║
+                    ╚════██║██║   ██║██║     ██╔══██║██║╚██╗██║██╔══██║
+                    ███████║╚██████╔╝███████╗██║  ██║██║ ╚████║██║  ██║
+                    ╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
+                    SOLANA TRADING BOT ACTIVATED
+                    Version: ${version}                                          
   `);
 
   const botConfig = bot.config;
 
-  logger.info('------- CONFIGURATION START -------');
-  logger.info(`Wallet: ${wallet.publicKey.toString()}`);
+  logger.info('📋 CONFIGURATION');
+  logger.info(`💼 Wallet: ${wallet.publicKey.toString()}`);
 
-  logger.info('- Bot -');
-
+  logger.info('🤖 Bot Settings');
   logger.info(
-    `Using ${TRANSACTION_EXECUTOR} executer: ${bot.isWarp || bot.isJito || (TRANSACTION_EXECUTOR === 'default' ? true : false)}`,
+    `⚡ Executor: ${TRANSACTION_EXECUTOR} (${bot.isThirdParty || bot.isJito || (TRANSACTION_EXECUTOR === 'default' ? 'enabled' : 'disabled')})`,
   );
-  if (bot.isWarp || bot.isJito) {
-    logger.info(`${TRANSACTION_EXECUTOR} fee: ${CUSTOM_FEE}`);
+  if (bot.isThirdParty || bot.isJito) {
+    logger.info(`💰 Fee: ${CUSTOM_FEE}`);
   } else {
-    logger.info(`Compute Unit limit: ${botConfig.unitLimit}`);
-    logger.info(`Compute Unit price (micro lamports): ${botConfig.unitPrice}`);
+    logger.info(`⚙️  Compute Unit Limit: ${botConfig.unitLimit}`);
+    logger.info(`💸 Compute Unit Price: ${botConfig.unitPrice} micro lamports`);
   }
 
-  logger.info(`Single token at the time: ${botConfig.oneTokenAtATime}`);
-  logger.info(`Pre load existing markets: ${PRE_LOAD_EXISTING_MARKETS}`);
-  logger.info(`Cache new markets: ${CACHE_NEW_MARKETS}`);
-  logger.info(`Log level: ${LOG_LEVEL}`);
+  logger.info(`🔄 Single Token Mode: ${botConfig.oneTokenAtATime}`);
+  logger.info(`📚 Pre-load Markets: ${PRE_LOAD_EXISTING_MARKETS}`);
+  logger.info(`💾 Cache New Markets: ${CACHE_NEW_MARKETS}`);
+  logger.info(`📊 Log Level: ${LOG_LEVEL}`);
 
-  logger.info('- Buy -');
-  logger.info(`Buy amount: ${botConfig.quoteAmount.toFixed()} ${botConfig.quoteToken.name}`);
-  logger.info(`Auto buy delay: ${botConfig.autoBuyDelay} ms`);
-  logger.info(`Max buy retries: ${botConfig.maxBuyRetries}`);
-  logger.info(`Buy amount (${quoteToken.symbol}): ${botConfig.quoteAmount.toFixed()}`);
-  logger.info(`Buy slippage: ${botConfig.buySlippage}%`);
+  logger.info('🛒 Buy Settings');
+  logger.info(`💵 Amount: ${botConfig.quoteAmount.toFixed()} ${botConfig.quoteToken.name}`);
+  logger.info(`⏱️  Auto Buy Delay: ${botConfig.autoBuyDelay}ms`);
+  logger.info(`🔄 Max Buy Retries: ${botConfig.maxBuyRetries}`);
+  logger.info(`📈 Buy Slippage: ${botConfig.buySlippage}%`);
 
-  logger.info('- Sell -');
-  logger.info(`Auto sell: ${AUTO_SELL}`);
-  logger.info(`Auto sell delay: ${botConfig.autoSellDelay} ms`);
-  logger.info(`Max sell retries: ${botConfig.maxSellRetries}`);
-  logger.info(`Sell slippage: ${botConfig.sellSlippage}%`);
-  logger.info(`Price check interval: ${botConfig.priceCheckInterval} ms`);
-  logger.info(`Price check duration: ${botConfig.priceCheckDuration} ms`);
-  logger.info(`Take profit: ${botConfig.takeProfit}%`);
-  logger.info(`Stop loss: ${botConfig.stopLoss}%`);
+  logger.info('💰 Sell Settings');
+  logger.info(`🤖 Auto Sell: ${AUTO_SELL}`);
+  logger.info(`⏱️  Auto Sell Delay: ${botConfig.autoSellDelay}ms`);
+  logger.info(`🔄 Max Sell Retries: ${botConfig.maxSellRetries}`);
+  logger.info(`📉 Sell Slippage: ${botConfig.sellSlippage}%`);
+  logger.info(`⏰ Price Check Interval: ${botConfig.priceCheckInterval}ms`);
+  logger.info(`⏱️  Price Check Duration: ${botConfig.priceCheckDuration}ms`);
+  logger.info(`📈 Take Profit: ${botConfig.takeProfit}%`);
+  logger.info(`📉 Stop Loss: ${botConfig.stopLoss}%`);
 
-  logger.info('- Snipe list -');
-  logger.info(`Snipe list: ${botConfig.useSnipeList}`);
-  logger.info(`Snipe list refresh interval: ${SNIPE_LIST_REFRESH_INTERVAL} ms`);
+  logger.info('🎯 Snipe List');
+  logger.info(`📋 Enabled: ${botConfig.useSnipeList}`);
+  logger.info(`🔄 Refresh Interval: ${SNIPE_LIST_REFRESH_INTERVAL}ms`);
 
   if (botConfig.useSnipeList) {
-    logger.info('- Filters -');
-    logger.info(`Filters are disabled when snipe list is on`);
+    logger.info('🔍 Filters');
+    logger.info(`⚠️  Filters disabled when snipe list is enabled`);
   } else {
-    logger.info('- Filters -');
-    logger.info(`Filter check interval: ${botConfig.filterCheckInterval} ms`);
-    logger.info(`Filter check duration: ${botConfig.filterCheckDuration} ms`);
-    logger.info(`Consecutive filter matches: ${botConfig.consecutiveMatchCount}`);
-    logger.info(`Check renounced: ${botConfig.checkRenounced}`);
-    logger.info(`Check freezable: ${botConfig.checkFreezable}`);
-    logger.info(`Check burned: ${botConfig.checkBurned}`);
-    logger.info(`Min pool size: ${botConfig.minPoolSize.toFixed()}`);
-    logger.info(`Max pool size: ${botConfig.maxPoolSize.toFixed()}`);
+    logger.info('🔍 Filters');
+    logger.info(`⏰ Check Interval: ${botConfig.filterCheckInterval}ms`);
+    logger.info(`⏱️  Check Duration: ${botConfig.filterCheckDuration}ms`);
+    logger.info(`🎯 Consecutive Matches: ${botConfig.consecutiveMatchCount}`);
+    logger.info(`🔒 Check Renounced: ${botConfig.checkRenounced}`);
+    logger.info(`❄️  Check Freezable: ${botConfig.checkFreezable}`);
+    logger.info(`🔥 Check Burned: ${botConfig.checkBurned}`);
+    logger.info(`📊 Min Pool Size: ${botConfig.minPoolSize.toFixed()}`);
+    logger.info(`📊 Max Pool Size: ${botConfig.maxPoolSize.toFixed()}`);
   }
 
-  logger.info('------- CONFIGURATION END -------');
-
-  logger.info('Bot is running! Press CTRL + C to stop it.');
+  logger.info('✅ CONFIGURATION COMPLETE');
+  logger.info('🚀 Bot is running! Press CTRL + C to stop.');
 }
 
 const runListener = async () => {
@@ -146,8 +136,8 @@ const runListener = async () => {
   let txExecutor: TransactionExecutor;
 
   switch (TRANSACTION_EXECUTOR) {
-    case 'warp': {
-      txExecutor = new WarpTransactionExecutor(CUSTOM_FEE);
+    case 'third-party': {
+      txExecutor = new ThirdPartyTransactionExecutor(CUSTOM_FEE);
       break;
     }
     case 'jito': {

@@ -17,12 +17,12 @@ import {
 import { Liquidity, LiquidityPoolKeysV4, LiquidityStateV4, Percent, Token, TokenAmount } from '@raydium-io/raydium-sdk';
 import { MarketCache, PoolCache, SnipeListCache } from './cache';
 import { PoolFilters } from './filters';
-import { TransactionExecutor } from './transactions';
-import { createPoolKeys, logger, NETWORK, sleep } from './helpers';
+import { TransactionExecutor } from '../services/transactions';
+import { createPoolKeys, logger, NETWORK, sleep } from '../utils/helpers';
 import { Mutex } from 'async-mutex';
 import BN from 'bn.js';
-import { WarpTransactionExecutor } from './transactions/warp-transaction-executor';
-import { JitoTransactionExecutor } from './transactions/jito-rpc-transaction-executor';
+import { ThirdPartyTransactionExecutor } from '../services/transactions/third-party-transaction-executor';
+import { JitoTransactionExecutor } from '../services/transactions/jito-rpc-transaction-executor';
 
 export interface BotConfig {
   wallet: Keypair;
@@ -63,7 +63,7 @@ export class Bot {
   // one token at the time
   private readonly mutex: Mutex;
   private sellExecutionCount = 0;
-  public readonly isWarp: boolean = false;
+  public readonly isThirdParty: boolean = false;
   public readonly isJito: boolean = false;
 
   constructor(
@@ -73,7 +73,7 @@ export class Bot {
     private readonly txExecutor: TransactionExecutor,
     readonly config: BotConfig,
   ) {
-    this.isWarp = txExecutor instanceof WarpTransactionExecutor;
+    this.isThirdParty = txExecutor instanceof ThirdPartyTransactionExecutor;
     this.isJito = txExecutor instanceof JitoTransactionExecutor;
 
     this.mutex = new Mutex();
@@ -327,7 +327,7 @@ export class Bot {
       payerKey: wallet.publicKey,
       recentBlockhash: latestBlockhash.blockhash,
       instructions: [
-        ...(this.isWarp || this.isJito
+        ...(this.isThirdParty || this.isJito
           ? []
           : [
               ComputeBudgetProgram.setComputeUnitPrice({ microLamports: this.config.unitPrice }),
